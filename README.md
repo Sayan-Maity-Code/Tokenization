@@ -22,9 +22,8 @@ This project demonstrates:
   • A Streamlit app (app.py) that visualizes graphemes, bytes, merges, and boundary violations, 
   • Why grapheme-aware tokenization helps models reason better about Bengali, lowering token count, and boosting context window efficiency.
 
-## Screenshots
-## Random MRI images of healthy and tumor brain cells are displayed for visual comparison.
-![MRI Images Comparison](https://github.com/Sayan-Maity-Code/Brain_Hemorrhage_Detection_Model/blob/main/Screenshots/healthy%26Tumor%20brain%20mri%20img%20for%20comparison.jpg)
+## Screenshot
+![Jupyter file's demo image](https://github.com/Sayan-Maity-Code/Tokenization/blob/master/Demo/jupyter%20file%20demo.png)
 
 ## 📂 Repository Structure
 
@@ -232,6 +231,8 @@ user_input = st.text_input("Enter Bengali text:")
 ---
 STREAMLIT APP (app.py) OVERVIEW
 ----------------------------------
+## Screenshot
+![App.py file's demo image](https://github.com/Sayan-Maity-Code/Tokenization/blob/master/Demo/App.py%20demo.png)
 Goal: Provide an interactive UI that demonstrates how Bengali grapheme clusters behave during byte‑pair merges and why preserving grapheme boundaries matters.
 
 A. Page Setup & Styling
