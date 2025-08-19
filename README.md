@@ -25,9 +25,22 @@ This project demonstrates:
 ## Screenshot
 ![Jupyter file's demo image](https://github.com/Sayan-Maity-Code/Tokenization/blob/master/Demo/jupyter%20file%20demo.png)
 
-## 📂 Repository Structure
+##  Quickstart
+
+### Clone the Repository and run all cells for ipynb file
+```bash
+git clone https://github.com/Sayan-Maity-Code/Tokenization.git
+cd tokenization_regional_lang.ipynb
+
 
 ```
+## for visual representation
+```bash
+cd app.py
+pip install streamlit plotly regex pandas numpy
+streamlit run app.py
+```
+## 📂 Repository Structure
 .
 ├── tokenizer_notebook.ipynb   # Jupyter notebook with training & tokenization pipeline
 ├── app.py                     # Streamlit visualization app
