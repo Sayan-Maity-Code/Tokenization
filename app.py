@@ -236,7 +236,7 @@ def check_grapheme_boundary(byte_pair, grapheme_byte_sequences):
     return False
 
 def generate_grapheme_aware_visualization(text_analysis, compressed_tokens, merges):
-    """Generate visualization that shows tokens in colors with grapheme boundaries"""
+    """Generate visualization that shows grapheme clusters properly"""
     
     colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
               '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
@@ -270,56 +270,67 @@ def generate_grapheme_aware_visualization(text_analysis, compressed_tokens, merg
     token_colors = {}
     color_idx = 0
     
-    # Assign colors to all tokens
     for token in compressed_tokens:
         if token not in token_colors:
-            token_colors[token] = colors[color_idx % len(colors)]
-            color_idx += 1
-    
-    # Process each token
-    for token in compressed_tokens:
+            if token >= 256:
+                token_colors[token] = colors[color_idx % len(colors)]
+                color_idx += 1
+            else:
+                token_colors[token] = '#666666'
+        
         expanded_bytes = expand_token(token)
-        token_text = bytes(expanded_bytes).decode('utf-8', errors='ignore')
         
-        # Create HTML for this token showing grapheme boundaries
-        token_html = ""
-        grapheme_start = current_pos
-        grapheme_end = current_pos
+        # Check if this token spans multiple graphemes
+        graphemes_in_token = set()
+        for byte_pos in range(current_pos, current_pos + len(expanded_bytes)):
+            if byte_pos in byte_to_grapheme:
+                graphemes_in_token.add(byte_to_grapheme[byte_pos]['grapheme_idx'])
         
-        # Process each byte in the token
-        for i, byte_pos in enumerate(range(current_pos, current_pos + len(expanded_bytes))):
-            if byte_pos in byte_to_grapheme and byte_to_grapheme[byte_pos]['is_start']:
-                # Found start of a new grapheme
-                if i > 0:
-                    # Add previous grapheme
-                    grapheme_bytes = expanded_bytes[grapheme_start-current_pos:grapheme_end-current_pos+1]
-                    try:
-                        grapheme_text = bytes(grapheme_bytes).decode('utf-8', errors='ignore')
-                    except:
-                        grapheme_text = "�"
-                    
-                    token_html += f'<span style="border-right: 1px solid rgba(0,0,0,0.2); padding: 0 2px;">{grapheme_text}</span>'
-                
-                # Start new grapheme
-                grapheme_start = byte_pos
-        
-            grapheme_end = byte_pos
-        
-        # Add the last grapheme in the token
-        grapheme_bytes = expanded_bytes[grapheme_start-current_pos:grapheme_end-current_pos+1]
+        # Reconstruct the character(s) for this token
         try:
-            grapheme_text = bytes(grapheme_bytes).decode('utf-8', errors='ignore')
+            token_text = bytes(expanded_bytes).decode('utf-8', errors='ignore')
+            
+            # Add border if token spans grapheme boundaries
+            border_style = ""
+            if len(graphemes_in_token) > 1:
+                border_style = "border: 2px dashed #FF0000; "
+            
+            if token_text.strip():
+                colored_html += f'<span style="background-color: {token_colors[token]}; {border_style}padding: 2px 4px; margin: 1px; border-radius: 3px; color: white; font-weight: bold;" title="Token ID: {token}, Spans {len(graphemes_in_token)} grapheme(s)">{token_text}</span>'
+            else:
+                colored_html += token_text
         except:
-            grapheme_text = "�"
-        
-        token_html += f'<span>{grapheme_text}</span>'
-        
-        # Add the token container with background color
-        colored_html += f'<span style="background-color: {token_colors[token]}; padding: 2px 4px; margin: 1px; border-radius: 3px; color: white; font-weight: bold; display: inline-block;" title="Token ID: {token}">{token_html}</span>'
+            colored_html += f'<span style="background-color: {token_colors[token]}; padding: 2px 4px; margin: 1px; border-radius: 3px; color: white; font-weight: bold;" title="Token ID: {token}">[?]</span>'
         
         current_pos += len(expanded_bytes)
     
-    return colored_html
+    return colored_html, token_colors
+
+def generate_grapheme_boundary_visualization(text_analysis, compressed_tokens, merge_table):
+    """Generate visualization showing grapheme boundaries"""
+    
+    def expand_token(token_id):
+        if token_id < 256:
+            return [token_id]
+        else:
+            left, right = merge_table[token_id]
+            return expand_token(left) + expand_token(right)
+    
+    # Create boundary markers
+    boundary_html = ""
+    current_pos = 0
+    
+    for token in compressed_tokens:
+        expanded_bytes = expand_token(token)
+        
+        try:
+            token_text = bytes(expanded_bytes).decode('utf-8', errors='ignore')
+            boundary_html += f'<span style="background-color: #e0e7ff; padding: 2px 4px; margin: 1px; border-radius: 3px; border: 1px solid #3b82f6;">{token_text}</span>'
+        except:
+            boundary_html += f'<span style="background-color: #fee2e2; padding: 2px 4px; margin: 1px; border-radius: 3px; border: 1px solid #ef4444;">[?]</span>'
+    
+    return boundary_html
+
 def bpe_decode(token_sequence, merges, errors="strict"):
     """Decode BPE tokens back to text"""
     def expand_token(token_id):
@@ -426,19 +437,27 @@ with col2:
         # Display graphemes with analysis
         st.markdown("**Grapheme Clusters (what you see as characters):**")
         
+        # Initialize grapheme display
         grapheme_display = ""
+
         for i, grapheme in enumerate(text_analysis['graphemes']):
-            if grapheme.strip():  # Skip whitespace
+            if grapheme.strip():  # Skip whitespace-only graphemes
                 analysis = text_analysis['grapheme_analysis'][i]
                 complexity_color = "#FF6B6B" if analysis['is_complex'] else "#4ECDC4"
-                grapheme_display += (
-                    f'<span style="background-color: {complexity_color}; padding: 4px 6px; margin: 2px; '
-                    f'border-radius: 4px; color: white; font-weight: bold;" '
-                    f'title="Bytes: {analysis["byte_count"]}, Type: {analysis["complexity_type"]}">{grapheme}</span>'
-                )
 
+                byte_count = analysis['byte_count']
+                complexity_type = analysis['complexity_type']
+
+                grapheme_display += (
+                    f'<span style="background-color: {complexity_color}; '
+                    f'padding: 4px 6px; margin: 2px; border-radius: 4px; '
+                    f'color: white; font-weight: bold;" '
+                    f'title="Bytes: {byte_count}, Type: {complexity_type}">'
+                    f'{grapheme}</span>'
+                )
             else:
                 grapheme_display += grapheme
+
         
         st.markdown(f'<div class="grapheme-display">{grapheme_display}</div>', unsafe_allow_html=True)
         st.caption("🔴 Complex graphemes (multiple code points) | 🟢 Simple characters")
@@ -492,40 +511,135 @@ if user_text.strip():
     with st.spinner("Performing grapheme-aware BPE tokenization..."):
         compressed_tokens, merge_table, merge_history, initial_length, text_analysis = bengali_utf8_bpe_with_grapheme_awareness(user_text, max_merges)
     
-    # Generate enhanced visualization
-    colored_tokens = generate_grapheme_aware_visualization(text_analysis, compressed_tokens, merge_table)
+    # Create two columns for different visualizations
+    vis_col1, vis_col2 = st.columns(2)
     
-    st.markdown("**Tokenized Output (🔴 dashed border = splits grapheme cluster):**")
-    st.markdown(f'<div class="token-display">{colored_tokens}</div>', unsafe_allow_html=True)
+    with vis_col1:
+        st.subheader("🎨 Token-wise Visualization")
+        st.caption("Each token has a unique color. Red dashed border = splits graphemes")
+        
+        # Generate enhanced visualization
+        colored_tokens, token_colors = generate_grapheme_aware_visualization(text_analysis, compressed_tokens, merge_table)
+        st.markdown(f'<div class="token-display">{colored_tokens}</div>', unsafe_allow_html=True)
+        
+        # Show token legend
+        with st.expander("🗂️ Token Color Legend"):
+            legend_html = ""
+            for i, token in enumerate(compressed_tokens[:20]):  # Show first 20 tokens
+                if token in token_colors:
+                    try:
+                        def expand_token(token_id):
+                            if token_id < 256:
+                                return [token_id]
+                            else:
+                                left, right = merge_table[token_id]
+                                return expand_token(left) + expand_token(right)
+                        
+                        expanded_bytes = expand_token(token)
+                        token_text = bytes(expanded_bytes).decode('utf-8', errors='ignore')
+                        legend_html += (
+                            f'<span style="background-color: {token_colors[token]}; padding: 2px 6px; '
+                            f'margin: 2px; border-radius: 3px; color: white; font-weight: bold; '
+                            f'display: inline-block;">Token {i+1}: "{token_text}" (ID: {token})</span><br>'
+                        )
+                    except:
+                        legend_html += (
+                            f'<span style="background-color: {token_colors[token]}; padding: 2px 6px; '
+                            f'margin: 2px; border-radius: 3px; color: white; font-weight: bold; '
+                            f'display: inline-block;">Token {i+1}: [?] (ID: {token})</span><br>'
+                        )
+            if len(compressed_tokens) > 20:
+                legend_html += f"<p>... and {len(compressed_tokens) - 20} more tokens</p>"
+            st.markdown(legend_html, unsafe_allow_html=True)
     
-    # Show token IDs
-    st.markdown("**Token IDs:**")
-    token_display = " ".join([f"[{token}]" for token in compressed_tokens[:30]])
-    if len(compressed_tokens) > 30:
-        token_display += " ..."
+    with vis_col2:
+        st.subheader("🔍 Grapheme Boundary Analysis")
+        st.caption("Shows how tokens align with grapheme clusters")
+        
+        # Generate grapheme boundary visualization
+        boundary_vis = generate_grapheme_boundary_visualization(text_analysis, compressed_tokens, merge_table)
+        st.markdown(f'<div class="token-display">{boundary_vis}</div>', unsafe_allow_html=True)
+    
+    # Show token IDs in full width
+    st.markdown("**🔢 Token ID Sequence:**")
+    token_display = " ".join([f"[{token}]" for token in compressed_tokens])
+    if len(token_display) > 1000:  # Truncate if too long
+        truncated = " ".join([f"[{token}]" for token in compressed_tokens[:50]])
+        token_display = truncated + f" ... (showing first 50 of {len(compressed_tokens)} tokens)"
     st.markdown(f'<div class="byte-display">{token_display}</div>', unsafe_allow_html=True)
     
     # Analysis of grapheme boundary violations
     st.subheader("⚠️ Grapheme Boundary Analysis")
     
-    boundary_violations = sum([1 for merge in merge_history if not merge.get('represents_grapheme_boundary', True)])
-    total_merges = len(merge_history)
+    # Count violations more accurately
+    violations = 0
+    violation_details = []
     
-    col1, col2, col3 = st.columns(3)
+    current_pos = 0
+    for i, token in enumerate(compressed_tokens):
+        def expand_token(token_id):
+            if token_id < 256:
+                return [token_id]
+            else:
+                left, right = merge_table[token_id]
+                return expand_token(left) + expand_token(right)
+        
+        expanded_bytes = expand_token(token)
+        
+        # Check if this token spans multiple graphemes
+        graphemes_in_token = set()
+        for byte_pos in range(current_pos, current_pos + len(expanded_bytes)):
+            # Map byte position to grapheme
+            byte_pos_in_text = 0
+            for g_idx, grapheme in enumerate(text_analysis['graphemes']):
+                grapheme_bytes = list(grapheme.encode('utf-8'))
+                if byte_pos_in_text <= byte_pos < byte_pos_in_text + len(grapheme_bytes):
+                    graphemes_in_token.add(g_idx)
+                    break
+                byte_pos_in_text += len(grapheme_bytes)
+        
+        if len(graphemes_in_token) > 1:
+            violations += 1
+            try:
+                token_text = bytes(expanded_bytes).decode('utf-8', errors='ignore')
+                violation_details.append(f"Token {i+1}: '{token_text}' spans {len(graphemes_in_token)} graphemes")
+            except:
+                violation_details.append(f"Token {i+1}: [ID:{token}] spans {len(graphemes_in_token)} graphemes")
+        
+        current_pos += len(expanded_bytes)
+    
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Merges", total_merges)
+        st.metric("Total Tokens", len(compressed_tokens))
     with col2:
-        st.metric("Grapheme Violations", boundary_violations)
+        st.metric("Grapheme Violations", violations)
     with col3:
-        violation_rate = (boundary_violations / total_merges * 100) if total_merges > 0 else 0
+        violation_rate = (violations / len(compressed_tokens) * 100) if len(compressed_tokens) > 0 else 0
         st.metric("Violation Rate", f"{violation_rate:.1f}%")
+    with col4:
+        compression_ratio = ((initial_length - len(compressed_tokens)) / initial_length * 100) if initial_length > 0 else 0
+        st.metric("Compression", f"{compression_ratio:.1f}%")
     
-    if boundary_violations > 0:
+    if violations > 0:
         st.markdown("""
         <div class="challenge-box">
         <h4>⚠️ Grapheme Boundary Issues Detected</h4>
-        <p>Some BPE merges split grapheme clusters, which can harm model understanding of Bengali text. 
+        <p>Some tokens split grapheme clusters, which can harm model understanding of Bengali text. 
         This is why Bengali needs specialized tokenization approaches.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander("📋 Detailed Violation List"):
+            for detail in violation_details[:10]:  # Show first 10 violations
+                st.write(f"• {detail}")
+            if len(violation_details) > 10:
+                st.write(f"... and {len(violation_details) - 10} more violations")
+    
+    else:
+        st.markdown("""
+        <div class="success-box">
+        <h4>✅ No Grapheme Boundary Violations</h4>
+        <p>All tokens respect grapheme cluster boundaries! This is ideal for Bengali text processing.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -561,7 +675,6 @@ with col2:
     </ul>
     </div>
     """, unsafe_allow_html=True)
-
 # Technical Deep Dive
 with st.expander("🔬 Technical Implementation Details"):
     st.markdown("""
